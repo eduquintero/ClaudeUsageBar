@@ -933,6 +933,77 @@ struct PasteableTextField: NSViewRepresentable {
     }
 }
 
+struct AccountTile: View {
+    @ObservedObject var usageManager: UsageManager
+    let account: Account
+    let onRemove: () -> Void
+
+    private var isActive: Bool {
+        usageManager.activeAccountId == account.id
+    }
+
+    private var displayPercentage: Double {
+        isActive ? usageManager.sessionPercentage : 0
+    }
+
+    private var displayUsage: Int {
+        isActive ? usageManager.sessionUsage : 0
+    }
+
+    private var usageColor: Color {
+        if displayPercentage < 0.7 { return .green }
+        else if displayPercentage < 0.9 { return .orange }
+        else { return .red }
+    }
+
+    var body: some View {
+        ZStack(alignment: .topTrailing) {
+            Button(action: { usageManager.switchAccount(to: account.id) }) {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(account.name.uppercased())
+                        .font(.system(size: 10))
+                        .foregroundColor(isActive ? .secondary : Color.secondary.opacity(0.5))
+
+                    Text(isActive && usageManager.hasFetchedData ? "\(displayUsage)%" : "—")
+                        .font(.system(size: 20, weight: .bold))
+                        .foregroundColor(isActive ? usageColor : Color.secondary.opacity(0.5))
+
+                    GeometryReader { geo in
+                        ZStack(alignment: .leading) {
+                            RoundedRectangle(cornerRadius: 2)
+                                .fill(Color.secondary.opacity(0.2))
+                                .frame(height: 4)
+                            RoundedRectangle(cornerRadius: 2)
+                                .fill(isActive ? usageColor : Color.secondary.opacity(0.3))
+                                .frame(width: geo.size.width * CGFloat(displayPercentage), height: 4)
+                        }
+                    }
+                    .frame(height: 4)
+                }
+                .padding(10)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(isActive ? Color.secondary.opacity(0.12) : Color.secondary.opacity(0.04))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 8)
+                        .stroke(isActive ? usageColor : Color.secondary.opacity(0.3), lineWidth: isActive ? 2 : 1)
+                )
+                .cornerRadius(8)
+                .opacity(isActive ? 1.0 : 0.6)
+            }
+            .buttonStyle(.plain)
+
+            // × remove button
+            Button(action: onRemove) {
+                Image(systemName: "xmark")
+                    .font(.system(size: 7, weight: .bold))
+                    .foregroundColor(.secondary)
+                    .padding(5)
+            }
+            .buttonStyle(.plain)
+        }
+    }
+}
+
 struct UsageView: View {
     @ObservedObject var usageManager: UsageManager
     @State private var sessionCookieInput: String = ""
