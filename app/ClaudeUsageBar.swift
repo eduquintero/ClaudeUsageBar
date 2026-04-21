@@ -577,6 +577,7 @@ class UsageManager: ObservableObject {
     }
 
     func fetchUsageWithOrgId(_ orgId: String) {
+        currentTask?.cancel()
         let urlString = "https://claude.ai/api/organizations/\(orgId)/usage"
 
         guard let url = URL(string: urlString) else {
