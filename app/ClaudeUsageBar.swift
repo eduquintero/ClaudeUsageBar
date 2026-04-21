@@ -434,10 +434,10 @@ class UsageManager: ObservableObject {
 
     func removeAccount(id: UUID) {
         accounts.removeAll(where: { $0.id == id })
-        saveAccounts()
         if activeAccountId == id {
             if let first = accounts.first {
                 switchAccount(to: first.id)
+                return
             } else {
                 activeAccountId = nil
                 currentTask?.cancel()
@@ -451,10 +451,13 @@ class UsageManager: ObservableObject {
                 hasFetchedData = false
                 hasWeeklySonnet = false
                 errorMessage = nil
+                lastNotifiedThreshold = 0
+                UserDefaults.standard.set(0, forKey: "last_notified_threshold")
                 updatePercentages()
                 delegate?.updateStatusIcon(percentage: 0)
             }
         }
+        saveAccounts()
     }
 
     func switchAccount(to id: UUID) {
@@ -471,6 +474,8 @@ class UsageManager: ObservableObject {
         hasFetchedData = false
         hasWeeklySonnet = false
         errorMessage = nil
+        lastNotifiedThreshold = 0
+        UserDefaults.standard.set(0, forKey: "last_notified_threshold")
         updatePercentages()
         currentTask?.cancel()
         stopTimer()
