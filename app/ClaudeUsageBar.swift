@@ -42,11 +42,6 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         // Fetch initial data
         usageManager.fetchUsage()
 
-        // Set up timer to refresh every 5 minutes
-        Timer.scheduledTimer(withTimeInterval: 300, repeats: true) { _ in
-            self.usageManager.fetchUsage()
-        }
-
         // Set up Cmd+U keyboard shortcut
         setupKeyboardShortcut()
     }
@@ -283,6 +278,19 @@ extension NSColor {
     }
 }
 
+struct Account: Codable, Identifiable {
+    let id: UUID
+    var name: String
+    var cookie: String
+    var orgId: String?
+
+    init(name: String, cookie: String) {
+        self.id = UUID()
+        self.name = name
+        self.cookie = cookie
+    }
+}
+
 // Main entry point
 @main
 struct Main {
@@ -315,27 +323,30 @@ class UsageManager: ObservableObject {
     @Published var isAccessibilityEnabled: Bool = false
     @Published var shortcutEnabled: Bool = true
 
+    @Published var accounts: [Account] = []
+    @Published var activeAccountId: UUID?
+
+    var sessionCookie: String {
+        accounts.first(where: { $0.id == activeAccountId })?.cookie ?? ""
+    }
+
+    private var currentTask: URLSessionDataTask?
+    private var refreshTimer: Timer?
     private var statusItem: NSStatusItem?
-    private var sessionCookie: String = ""
     private weak var delegate: AppDelegate?
     private var lastNotifiedThreshold: Int = 0
 
     init(statusItem: NSStatusItem?, delegate: AppDelegate? = nil) {
         self.statusItem = statusItem
         self.delegate = delegate
-        loadSessionCookie()
+        loadAccounts()
         loadSettings()
         checkAccessibilityStatus()
+        DispatchQueue.main.async { self.startTimer() }
     }
 
     func checkAccessibilityStatus() {
         isAccessibilityEnabled = AXIsProcessTrusted()
-    }
-
-    func loadSessionCookie() {
-        if let savedCookie = UserDefaults.standard.string(forKey: "claude_session_cookie") {
-            sessionCookie = savedCookie
-        }
     }
 
     func loadSettings() {
@@ -363,20 +374,94 @@ class UsageManager: ObservableObject {
     }
 
     func saveSessionCookie(_ cookie: String) {
-        NSLog("ClaudeUsage: Saving cookie, length: \(cookie.count)")
-        sessionCookie = cookie
-        UserDefaults.standard.set(cookie, forKey: "claude_session_cookie")
-        UserDefaults.standard.synchronize()
-        NSLog("ClaudeUsage: Cookie saved successfully")
+        if let id = activeAccountId, let idx = accounts.firstIndex(where: { $0.id == id }) {
+            accounts[idx].cookie = cookie
+            accounts[idx].orgId = nil
+            saveAccounts()
+        } else {
+            addAccount(name: "Principal", cookie: cookie)
+            return
+        }
+        fetchUsage()
     }
 
     func clearSessionCookie() {
-        NSLog("ClaudeUsage: Clearing cookie")
-        sessionCookie = ""
-        UserDefaults.standard.removeObject(forKey: "claude_session_cookie")
-        UserDefaults.standard.synchronize()
+        if let id = activeAccountId {
+            removeAccount(id: id)
+        }
+    }
 
-        // Reset all data
+    func loadAccounts() {
+        // Migration: convert legacy single cookie to accounts array
+        if let legacy = UserDefaults.standard.string(forKey: "claude_session_cookie"), !legacy.isEmpty {
+            let account = Account(name: "Principal", cookie: legacy)
+            accounts = [account]
+            activeAccountId = account.id
+            saveAccounts()
+            UserDefaults.standard.removeObject(forKey: "claude_session_cookie")
+            UserDefaults.standard.synchronize()
+            return
+        }
+
+        if let data = UserDefaults.standard.data(forKey: "accounts"),
+           let decoded = try? JSONDecoder().decode([Account].self, from: data) {
+            accounts = decoded
+        }
+        if let uuidString = UserDefaults.standard.string(forKey: "active_account_id"),
+           let uuid = UUID(uuidString: uuidString) {
+            activeAccountId = uuid
+        } else {
+            activeAccountId = accounts.first?.id
+        }
+    }
+
+    func saveAccounts() {
+        if let data = try? JSONEncoder().encode(accounts) {
+            UserDefaults.standard.set(data, forKey: "accounts")
+        }
+        UserDefaults.standard.set(activeAccountId?.uuidString, forKey: "active_account_id")
+        UserDefaults.standard.synchronize()
+    }
+
+    func addAccount(name: String, cookie: String) {
+        let account = Account(name: name, cookie: cookie)
+        accounts.append(account)
+        saveAccounts()
+        if accounts.count == 1 {
+            switchAccount(to: account.id)
+        }
+    }
+
+    func removeAccount(id: UUID) {
+        accounts.removeAll(where: { $0.id == id })
+        saveAccounts()
+        if activeAccountId == id {
+            if let first = accounts.first {
+                switchAccount(to: first.id)
+            } else {
+                activeAccountId = nil
+                currentTask?.cancel()
+                stopTimer()
+                sessionUsage = 0
+                weeklyUsage = 0
+                weeklySonnetUsage = 0
+                sessionResetsAt = nil
+                weeklyResetsAt = nil
+                weeklySonnetResetsAt = nil
+                hasFetchedData = false
+                hasWeeklySonnet = false
+                errorMessage = nil
+                updatePercentages()
+                delegate?.updateStatusIcon(percentage: 0)
+            }
+        }
+    }
+
+    func switchAccount(to id: UUID) {
+        guard accounts.contains(where: { $0.id == id }) else { return }
+        activeAccountId = id
+        UserDefaults.standard.set(id.uuidString, forKey: "active_account_id")
+        UserDefaults.standard.synchronize()
         sessionUsage = 0
         weeklyUsage = 0
         weeklySonnetUsage = 0
@@ -386,29 +471,56 @@ class UsageManager: ObservableObject {
         hasFetchedData = false
         hasWeeklySonnet = false
         errorMessage = nil
-        lastNotifiedThreshold = 0
-        UserDefaults.standard.set(0, forKey: "last_notified_threshold")
+        updatePercentages()
+        currentTask?.cancel()
+        stopTimer()
+        fetchUsage()
+        startTimer()
+    }
 
-        // Update status bar to show 0%
-        delegate?.updateStatusIcon(percentage: 0)
+    func cacheOrgId(_ orgId: String, for accountId: UUID) {
+        if let idx = accounts.firstIndex(where: { $0.id == accountId }) {
+            accounts[idx].orgId = orgId
+            saveAccounts()
+        }
+    }
 
-        NSLog("ClaudeUsage: Cookie cleared, data reset")
+    private func startTimer() {
+        refreshTimer?.invalidate()
+        refreshTimer = Timer.scheduledTimer(withTimeInterval: 300, repeats: true) { [weak self] _ in
+            self?.fetchUsage()
+        }
+    }
+
+    private func stopTimer() {
+        refreshTimer?.invalidate()
+        refreshTimer = nil
     }
 
     func fetchOrganizationId(completion: @escaping (String?) -> Void) {
-        // Get org ID from the lastActiveOrg cookie value
+        // Use cached orgId if available
+        if let id = activeAccountId,
+           let account = accounts.first(where: { $0.id == id }),
+           let cached = account.orgId {
+            NSLog("📋 Using cached org ID: \(cached)")
+            completion(cached)
+            return
+        }
+
+        // Parse from cookie
         let cookieParts = sessionCookie.components(separatedBy: ";")
         for part in cookieParts {
             let trimmed = part.trimmingCharacters(in: .whitespaces)
             if trimmed.hasPrefix("lastActiveOrg=") {
                 let orgId = trimmed.replacingOccurrences(of: "lastActiveOrg=", with: "")
                 NSLog("📋 Found org ID in cookie: \(orgId)")
+                if let id = activeAccountId { cacheOrgId(orgId, for: id) }
                 completion(orgId)
                 return
             }
         }
 
-        // If not in cookie, fetch from bootstrap
+        // Fallback: fetch from bootstrap
         guard let url = URL(string: "https://claude.ai/api/bootstrap") else {
             completion(nil)
             return
@@ -420,8 +532,9 @@ class UsageManager: ObservableObject {
 
         NSLog("📡 Fetching bootstrap to get org ID...")
 
-        URLSession.shared.dataTask(with: request) { data, response, error in
-            guard let data = data,
+        URLSession.shared.dataTask(with: request) { [weak self] data, response, error in
+            guard let self = self,
+                  let data = data,
                   let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
                   let account = json["account"] as? [String: Any],
                   let lastActiveOrgId = account["lastActiveOrgId"] as? String else {
@@ -430,6 +543,9 @@ class UsageManager: ObservableObject {
                 return
             }
             NSLog("✅ Got org ID from bootstrap: \(lastActiveOrgId)")
+            if let id = self.activeAccountId {
+                DispatchQueue.main.async { self.cacheOrgId(lastActiveOrgId, for: id) }
+            }
             completion(lastActiveOrgId)
         }.resume()
     }
@@ -485,8 +601,9 @@ class UsageManager: ObservableObject {
 
         NSLog("🔍 Fetching from: \(urlString)")
 
-        URLSession.shared.dataTask(with: request) { [weak self] data, response, error in
+        currentTask = URLSession.shared.dataTask(with: request) { [weak self] data, response, error in
             DispatchQueue.main.async {
+                self?.currentTask = nil
                 self?.isLoading = false
 
                 if let error = error {
@@ -516,7 +633,8 @@ class UsageManager: ObservableObject {
 
                 self?.updateStatusBar()
             }
-        }.resume()
+        }
+        currentTask?.resume()
     }
 
     func parseUsageData(_ data: Data) {
