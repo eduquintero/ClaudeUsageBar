@@ -395,6 +395,11 @@ class UsageManager: ObservableObject {
         } else {
             activeAccountId = accounts.first?.id
         }
+
+        // Ensure activeAccountId points to an existing account
+        if let id = activeAccountId, !accounts.contains(where: { $0.id == id }) {
+            activeAccountId = accounts.first?.id
+        }
     }
 
     func saveAccounts() {
@@ -1027,16 +1032,16 @@ struct AddAccountTile: View {
 
     private var expandedForm: some View {
         VStack(alignment: .leading, spacing: 6) {
-            Text("Nueva cuenta")
+            Text("New account")
                 .font(.system(size: 10))
                 .foregroundColor(.secondary)
                 .textCase(.uppercase)
 
-            TextField("Nombre", text: $nameInput)
+            TextField("Name", text: $nameInput)
                 .textFieldStyle(.roundedBorder)
                 .font(.system(size: 11))
 
-            PasteableTextField(text: $cookieInput, placeholder: "Pegar cookie...")
+            PasteableTextField(text: $cookieInput, placeholder: "Paste cookie...")
                 .frame(height: 44)
                 .cornerRadius(4)
 
