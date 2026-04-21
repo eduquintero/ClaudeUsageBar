@@ -1004,6 +1004,101 @@ struct AccountTile: View {
     }
 }
 
+struct AddAccountTile: View {
+    @ObservedObject var usageManager: UsageManager
+    @State private var isExpanded: Bool
+    @State private var nameInput: String = ""
+    @State private var cookieInput: String = ""
+
+    init(usageManager: UsageManager, initiallyExpanded: Bool = false) {
+        self.usageManager = usageManager
+        _isExpanded = State(initialValue: initiallyExpanded)
+    }
+
+    var body: some View {
+        if isExpanded {
+            expandedForm
+        } else {
+            collapsedTile
+        }
+    }
+
+    private var collapsedTile: some View {
+        Button(action: { isExpanded = true }) {
+            VStack {
+                Spacer()
+                Image(systemName: "plus")
+                    .font(.system(size: 16, weight: .medium))
+                    .foregroundColor(.secondary)
+                Spacer()
+            }
+            .frame(maxWidth: .infinity)
+            .frame(height: 72)
+            .overlay(
+                RoundedRectangle(cornerRadius: 8)
+                    .stroke(Color.secondary.opacity(0.3), style: StrokeStyle(lineWidth: 1, dash: [4]))
+            )
+            .cornerRadius(8)
+        }
+        .buttonStyle(.plain)
+    }
+
+    private var expandedForm: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text("Nueva cuenta")
+                .font(.system(size: 10))
+                .foregroundColor(.secondary)
+                .textCase(.uppercase)
+
+            TextField("Nombre", text: $nameInput)
+                .textFieldStyle(.roundedBorder)
+                .font(.system(size: 11))
+
+            PasteableTextField(text: $cookieInput, placeholder: "Pegar cookie...")
+                .frame(height: 44)
+                .cornerRadius(4)
+
+            HStack(spacing: 6) {
+                Button(action: confirmAdd) {
+                    Image(systemName: "checkmark")
+                        .font(.system(size: 11, weight: .semibold))
+                }
+                .buttonStyle(.borderedProminent)
+                .controlSize(.small)
+                .disabled(nameInput.trimmingCharacters(in: .whitespaces).isEmpty || cookieInput.isEmpty)
+
+                Button(action: cancelAdd) {
+                    Image(systemName: "xmark")
+                        .font(.system(size: 11))
+                }
+                .buttonStyle(.bordered)
+                .controlSize(.small)
+            }
+        }
+        .padding(10)
+        .overlay(
+            RoundedRectangle(cornerRadius: 8)
+                .stroke(Color.secondary.opacity(0.3), lineWidth: 1)
+        )
+        .cornerRadius(8)
+    }
+
+    private func confirmAdd() {
+        let name = nameInput.trimmingCharacters(in: .whitespaces)
+        guard !name.isEmpty, !cookieInput.isEmpty else { return }
+        usageManager.addAccount(name: name, cookie: cookieInput)
+        nameInput = ""
+        cookieInput = ""
+        isExpanded = false
+    }
+
+    private func cancelAdd() {
+        nameInput = ""
+        cookieInput = ""
+        isExpanded = false
+    }
+}
+
 struct UsageView: View {
     @ObservedObject var usageManager: UsageManager
     @State private var sessionCookieInput: String = ""
