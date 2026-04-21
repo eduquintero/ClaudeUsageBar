@@ -35,7 +35,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
         // Create popover
         popover = NSPopover()
-        popover.contentSize = NSSize(width: 320, height: 260)
+        popover.contentSize = NSSize(width: 320, height: 320)
         popover.behavior = .transient
         popover.contentViewController = NSHostingController(rootView: UsageView(usageManager: usageManager))
 
@@ -1122,8 +1122,6 @@ struct AccountTileRow: View {
 
 struct UsageView: View {
     @ObservedObject var usageManager: UsageManager
-    @State private var sessionCookieInput: String = ""
-    @State private var showingCookieInput: Bool = false
     @State private var showingSettings: Bool = false
 
     var body: some View {
@@ -1131,6 +1129,8 @@ struct UsageView: View {
             Text("Claude Usage")
                 .font(.headline)
                 .padding(.bottom, 4)
+
+            AccountTileRow(usageManager: usageManager)
 
             if let error = usageManager.errorMessage {
                 Text(error)
@@ -1141,7 +1141,7 @@ struct UsageView: View {
 
             // Only show usage if data has been fetched
             if !usageManager.hasFetchedData {
-                Text("👋 Welcome! Set your session cookie below to get started.")
+                Text("👋 Welcome! Add an account above to get started.")
                     .font(.subheadline)
                     .foregroundColor(.secondary)
                     .padding(.vertical, 8)
@@ -1228,69 +1228,6 @@ struct UsageView: View {
                 .buttonStyle(.borderless)
                 .font(.caption)
             }
-            }
-
-            Button(showingCookieInput ? "Hide Cookie" : "Set Session Cookie") {
-                showingCookieInput.toggle()
-            }
-            .buttonStyle(.borderless)
-            .font(.caption)
-
-            if showingCookieInput {
-                VStack(alignment: .leading, spacing: 8) {
-                    Text("How to get your session cookie:")
-                        .font(.caption)
-                        .fontWeight(.semibold)
-
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text("1. Go to Settings > Usage on claude.ai")
-                        Text("2. Press F12 (or Cmd+Option+I)")
-                        Text("3. Go to Network tab")
-                        Text("4. Refresh page, click 'usage' request")
-                        Text("5. Find 'Cookie' in Request Headers")
-                        Text("6. Copy full cookie value\n   (starts with anthropic-device-id=...)")
-                    }
-                    .font(.caption2)
-                    .foregroundColor(.secondary)
-
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text("Paste full cookie string:")
-                            .font(.caption2)
-                            .foregroundColor(.secondary)
-                        VStack(spacing: 4) {
-                            PasteableTextField(text: $sessionCookieInput, placeholder: "Paste cookie here...")
-                                .frame(height: 60)
-                                .cornerRadius(4)
-
-                            HStack(spacing: 8) {
-                                Button("Save Cookie & Fetch") {
-                                    NSLog("ClaudeUsage: Save clicked, input length: \(sessionCookieInput.count)")
-                                    if sessionCookieInput.isEmpty {
-                                        usageManager.errorMessage = "Cookie field is empty!"
-                                    } else {
-                                        usageManager.saveSessionCookie(sessionCookieInput)
-                                        usageManager.fetchUsage()
-                                        usageManager.errorMessage = "Cookie saved, fetching..."
-                                    }
-                                }
-                                .buttonStyle(.borderedProminent)
-                                .controlSize(.small)
-
-                                if usageManager.hasFetchedData {
-                                    Button("Clear Cookie") {
-                                        sessionCookieInput = ""
-                                        usageManager.clearSessionCookie()
-                                    }
-                                    .buttonStyle(.bordered)
-                                    .controlSize(.small)
-                                }
-                            }
-                        }
-                    }
-                }
-                .padding(8)
-                .background(Color.secondary.opacity(0.1))
-                .cornerRadius(6)
             }
 
             // Support Section
@@ -1404,11 +1341,6 @@ struct UsageView: View {
         .padding()
         .frame(width: 360)
         .onAppear {
-            // Load saved cookie when view appears
-            if let savedCookie = UserDefaults.standard.string(forKey: "claude_session_cookie") {
-                sessionCookieInput = String(savedCookie.prefix(20)) + "..."
-            }
-            // Force refresh to ensure progress bars show colors
             usageManager.updatePercentages()
         }
     }
