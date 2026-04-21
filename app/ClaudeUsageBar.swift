@@ -1099,6 +1099,27 @@ struct AddAccountTile: View {
     }
 }
 
+struct AccountTileRow: View {
+    @ObservedObject var usageManager: UsageManager
+
+    var body: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 8) {
+                ForEach(usageManager.accounts) { account in
+                    AccountTile(usageManager: usageManager, account: account) {
+                        usageManager.removeAccount(id: account.id)
+                    }
+                    .frame(width: 120)
+                }
+                AddAccountTile(usageManager: usageManager, initiallyExpanded: usageManager.accounts.isEmpty)
+                    .frame(width: usageManager.accounts.isEmpty ? .infinity : 80)
+            }
+            .padding(.horizontal, 1)
+        }
+        .frame(height: 88)
+    }
+}
+
 struct UsageView: View {
     @ObservedObject var usageManager: UsageManager
     @State private var sessionCookieInput: String = ""
