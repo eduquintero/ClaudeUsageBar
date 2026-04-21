@@ -373,24 +373,6 @@ class UsageManager: ObservableObject {
         UserDefaults.standard.synchronize()
     }
 
-    func saveSessionCookie(_ cookie: String) {
-        if let id = activeAccountId, let idx = accounts.firstIndex(where: { $0.id == id }) {
-            accounts[idx].cookie = cookie
-            accounts[idx].orgId = nil
-            saveAccounts()
-        } else {
-            addAccount(name: "Principal", cookie: cookie)
-            return
-        }
-        fetchUsage()
-    }
-
-    func clearSessionCookie() {
-        if let id = activeAccountId {
-            removeAccount(id: id)
-        }
-    }
-
     func loadAccounts() {
         // Migration: convert legacy single cookie to accounts array
         if let legacy = UserDefaults.standard.string(forKey: "claude_session_cookie"), !legacy.isEmpty {
@@ -1140,7 +1122,7 @@ struct UsageView: View {
             }
 
             // Only show usage if data has been fetched
-            if !usageManager.hasFetchedData {
+            if usageManager.accounts.isEmpty {
                 Text("👋 Welcome! Add an account above to get started.")
                     .font(.subheadline)
                     .foregroundColor(.secondary)
@@ -1339,7 +1321,7 @@ struct UsageView: View {
             }
         }
         .padding()
-        .frame(width: 360)
+        .frame(width: 320)
         .onAppear {
             usageManager.updatePercentages()
         }
