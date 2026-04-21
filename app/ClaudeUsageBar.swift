@@ -434,30 +434,33 @@ class UsageManager: ObservableObject {
 
     func removeAccount(id: UUID) {
         accounts.removeAll(where: { $0.id == id })
+
         if activeAccountId == id {
-            if let first = accounts.first {
-                switchAccount(to: first.id)
-                return
-            } else {
-                activeAccountId = nil
-                currentTask?.cancel()
-                stopTimer()
-                sessionUsage = 0
-                weeklyUsage = 0
-                weeklySonnetUsage = 0
-                sessionResetsAt = nil
-                weeklyResetsAt = nil
-                weeklySonnetResetsAt = nil
-                hasFetchedData = false
-                hasWeeklySonnet = false
-                errorMessage = nil
-                lastNotifiedThreshold = 0
-                UserDefaults.standard.set(0, forKey: "last_notified_threshold")
-                updatePercentages()
-                delegate?.updateStatusIcon(percentage: 0)
-            }
+            activeAccountId = accounts.first?.id
+            currentTask?.cancel()
+            stopTimer()
+            sessionUsage = 0
+            weeklyUsage = 0
+            weeklySonnetUsage = 0
+            sessionResetsAt = nil
+            weeklyResetsAt = nil
+            weeklySonnetResetsAt = nil
+            hasFetchedData = false
+            hasWeeklySonnet = false
+            errorMessage = nil
+            lastNotifiedThreshold = 0
+            UserDefaults.standard.set(0, forKey: "last_notified_threshold")
+            updatePercentages()
         }
+
         saveAccounts()
+
+        if activeAccountId != nil {
+            fetchUsage()
+            startTimer()
+        } else {
+            delegate?.updateStatusIcon(percentage: 0)
+        }
     }
 
     func switchAccount(to id: UUID) {
